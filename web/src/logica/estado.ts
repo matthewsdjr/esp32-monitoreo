@@ -21,6 +21,8 @@ export interface EvaluacionCanal {
   severidad: Severidad;
   /** Texto que acompaña siempre al color: el estado nunca se comunica solo con el tono. */
   etiquetaEstado: string;
+  /** Versión breve para la insignia de la tarjeta, que es angosta. */
+  etiquetaCorta: string;
   icono: string;
 }
 
@@ -49,14 +51,14 @@ export function evaluarCanal(
   // 1. Sin ningún dato todavía
   if (!lectura) {
     return { canal, valor: null, estado: "sin_dato", severidad: "normal",
-             etiquetaEstado: "Sin dato", icono: "○" };
+             etiquetaEstado: "Sin dato", etiquetaCorta: "Sin dato", icono: "○" };
   }
 
   // 2. Falla reportada por el firmware (bit en la máscara)
   const enFalla = (lectura.faults & (1 << BIT_FALLA[canal])) !== 0;
   if (enFalla || valor === null) {
     return { canal, valor: null, estado: "falla", severidad: "alarma",
-             etiquetaEstado: "Falla de sensor", icono: "✕" };
+             etiquetaEstado: "Falla de sensor", etiquetaCorta: "Falla", icono: "✕" };
   }
 
   // 3. Dato viejo. Se evalúa DESPUÉS de la falla porque una falla explícita es
@@ -64,7 +66,7 @@ export function evaluarCanal(
   const edad = ahoraMs - Date.parse(lectura.ts);
   if (edad > MS_OBSOLETO) {
     return { canal, valor, estado: "obsoleto", severidad: "advertencia",
-             etiquetaEstado: "Dato obsoleto", icono: "◷" };
+             etiquetaEstado: "Dato obsoleto", etiquetaCorta: "Obsoleto", icono: "◷" };
   }
 
   // 4. Fuera del rango físico del sensor: casi siempre cableado suelto o sensor
@@ -72,7 +74,7 @@ export function evaluarCanal(
   const { min_fisico, max_fisico } = sensor;
   if ((min_fisico !== null && valor < min_fisico) || (max_fisico !== null && valor > max_fisico)) {
     return { canal, valor, estado: "fuera_rango", severidad: "alarma",
-             etiquetaEstado: "Fuera de rango físico", icono: "✕" };
+             etiquetaEstado: "Fuera de rango físico", etiquetaCorta: "Fuera de rango", icono: "✕" };
   }
 
   // 5. Umbrales de proceso
@@ -80,16 +82,16 @@ export function evaluarCanal(
     const { alarm_low, alarm_high, warn_low, warn_high } = umbral;
     if ((alarm_high !== null && valor > alarm_high) || (alarm_low !== null && valor < alarm_low)) {
       return { canal, valor, estado: "ok", severidad: "alarma",
-               etiquetaEstado: "En alarma", icono: "▲" };
+               etiquetaEstado: "En alarma", etiquetaCorta: "Alarma", icono: "▲" };
     }
     if ((warn_high !== null && valor > warn_high) || (warn_low !== null && valor < warn_low)) {
       return { canal, valor, estado: "ok", severidad: "advertencia",
-               etiquetaEstado: "Fuera de rango objetivo", icono: "▲" };
+               etiquetaEstado: "Fuera de rango objetivo", etiquetaCorta: "Advertencia", icono: "▲" };
     }
   }
 
   return { canal, valor, estado: "ok", severidad: "normal",
-           etiquetaEstado: "Normal", icono: "●" };
+           etiquetaEstado: "Normal", etiquetaCorta: "Normal", icono: "●" };
 }
 
 /** Color de estado. Va SIEMPRE acompañado de icono y texto, nunca solo. */

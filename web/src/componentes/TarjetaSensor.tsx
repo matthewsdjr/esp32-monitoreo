@@ -103,7 +103,9 @@ export function TarjetaSensor({ sensor, evaluacion, serie }: Props) {
         border: "1px solid var(--border)",
       }}
     >
-      <header className="flex items-start justify-between gap-2">
+      {/* flex-wrap y no solo justify-between: en una tarjeta angosta la insignia
+          se pasa a su propio renglón en vez de encimarse con el título. */}
+      <header className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
         <h3
           className="text-[13px] font-medium leading-tight"
           style={{ color: "var(--text-secondary)" }}
@@ -121,7 +123,7 @@ export function TarjetaSensor({ sensor, evaluacion, serie }: Props) {
           }}
         >
           <span aria-hidden="true">{evaluacion.icono}</span>
-          {evaluacion.etiquetaEstado}
+          {evaluacion.etiquetaCorta}
         </span>
       </header>
 
