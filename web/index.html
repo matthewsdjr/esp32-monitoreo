@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📊</text></svg>" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Monitoreo en tiempo real de sensores de temperatura, humedad y peso." />
+    <!-- Evita el destello blanco antes de que React aplique el tema guardado -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f9f9f7" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d0d0d" />
+    <title>Monitoreo de sensores</title>
+    <script>
+      // Se aplica antes del primer pintado: si esperara a React, la página
+      // parpadearía en blanco al cargar con tema oscuro.
+      (function () {
+        var t = localStorage.getItem("tema");
+        if (t !== "claro" && t !== "oscuro") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "oscuro" : "claro";
+        }
+        document.documentElement.setAttribute("data-theme", t === "oscuro" ? "dark" : "light");
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

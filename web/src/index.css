@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   Sistema de color
+   ==========================================================================
+   Los valores oscuros se declaran bajo DOS ámbitos: la media query cubre la
+   preferencia del sistema operativo, y [data-theme] cubre el interruptor del
+   usuario, que debe poder ganar en ambos sentidos. El guardia :not(...) permite
+   que una marca "light" venza a un sistema configurado en oscuro.
+
+   La paleta categórica está validada para daltonismo: peor par adyacente
+   ΔE 9.2 en claro / 9.4 en oscuro, sobre un objetivo de 8. En modo claro el
+   aqua queda por debajo de 3:1 contra la superficie, por lo que las series
+   llevan etiqueta directa en el extremo y existe vista de tabla — el color
+   nunca es el único portador de identidad.
+
+   No cambiar estos hex sin volver a pasar el validador.
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  --surface-1:      #fcfcfb;
+  --page:           #f9f9f7;
+  --text-primary:   #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted:     #898781;
+  --grid:           #e1e0d9;
+  --axis:           #c3c2b7;
+  --border:         rgba(11, 11, 11, 0.10);
+
+  /* Categóricas — el ORDEN de los slots es el mecanismo de seguridad CVD */
+  --series-1: #2a78d6;  /* azul    */
+  --series-2: #eb6834;  /* naranja */
+  --series-3: #1baf7a;  /* aqua    */
+
+  /* Estado — nunca se reutilizan como series; siempre con icono + etiqueta */
+  --status-good:     #0ca30c;
+  --status-warning:  #fab219;
+  --status-serious:  #ec835a;
+  --status-critical: #d03b3b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1:      #1a1a19;
+  --page:           #0d0d0d;
+  --text-primary:   #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted:     #898781;
+  --grid:           #2c2c2a;
+  --axis:           #383835;
+  --border:         rgba(255, 255, 255, 0.10);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* El contenido ancho hace scroll dentro de su propio contenedor; la página
+   nunca hace scroll horizontal. */
+* { min-width: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.recharts-wrapper:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 2px;
+  border-radius: 6px;
+}

@@ -1,0 +1,66 @@
+name: Desplegar dashboard a GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Un despliegue a la vez; si llegan varios push seguidos, se publica el último.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  construir:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - name: Construir
+        env:
+          # Derivado del nombre del repositorio. Para un dominio propio o una
+          # *user page* (usuario.github.io), poner BASE_PATH: "/".
+          BASE_PATH: /${{ github.event.repository.name }}/
+          # Claves PÚBLICAS por diseño: la anon key va incrustada en el bundle y
+          # su seguridad depende de las políticas RLS, no de ocultarla.
+          # La service_role NUNCA debe aparecer aquí.
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_DEVICE_SLUG: ${{ vars.VITE_DEVICE_SLUG }}
+        run: npm run build
+
+      - name: Evitar el procesamiento con Jekyll
+        run: touch dist/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  publicar:
+    needs: construir
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.despliegue.outputs.page_url }}
+    steps:
+      - id: despliegue
+        uses: actions/deploy-pages@v4

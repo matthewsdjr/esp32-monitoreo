@@ -1,0 +1,51 @@
+title = "Configuración de escaneo de secretos"
+
+[extend]
+useDefault = true
+
+# ------------------------------------------------------------------
+# Reglas propias del proyecto
+# ------------------------------------------------------------------
+
+[[rules]]
+id = "wifi-password-hardcoded"
+description = "Contraseña WiFi embebida en el firmware"
+regex = '''(?i)(wifi_?pass|WIFI_PASSWORD|ssid_?pass|psk)\s*[:=]\s*["'][^"'\n]{6,}["']'''
+tags = ["wifi", "credencial"]
+
+[[rules]]
+id = "wifi-ssid-hardcoded"
+description = "SSID embebido en el código en vez de aprovisionarse por NVS"
+# Deliberadamente genérica: una regla que nombrara el SSID real lo publicaría
+# en este archivo justamente para poder detectarlo.
+regex = '''(?i)(wifi_?ssid|WIFI_SSID|ssid)\s*[:=]\s*["'][^"'\n]{2,}["']'''
+tags = ["wifi"]
+
+[[rules]]
+id = "supabase-service-role"
+description = "Clave service_role de Supabase (NUNCA va al frontend ni al firmware)"
+regex = '''eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]*(service_role)[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+'''
+tags = ["supabase", "critico"]
+
+[[rules]]
+id = "device-ingest-token"
+description = "Token de ingesta de un equipo"
+regex = '''(?i)(device_?token|INGEST_TOKEN)\s*[:=]\s*["'][A-Za-z0-9_\-]{20,}["']'''
+tags = ["dispositivo"]
+
+# ------------------------------------------------------------------
+# Exclusiones
+# ------------------------------------------------------------------
+
+[allowlist]
+description = "Plantillas y documentación con valores de ejemplo"
+paths = [
+  '''\.example$''',
+  '''\.example\.''',
+  '''^docs/''',
+  '''^\.gitleaks\.toml$''',
+]
+regexes = [
+  '''TU_[A-Z_]+_AQUI''',
+  '''<[a-z-]+>''',
+]
