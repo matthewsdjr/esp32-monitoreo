@@ -13,6 +13,7 @@
 import type { FuenteDatos } from "./fuente";
 import type {
   Alarma,
+  ComandoEquipo,
   DefinicionSensor,
   EstadoEnlace,
   EstadoEquipo,
@@ -105,7 +106,6 @@ function procesoEn(tMs: number): Lectura {
 // ----------------------------------------------------------------------------
 export class FuenteDemo implements FuenteDatos {
   readonly esDemo = true;
-  private arranque = Date.now();
 
   suscribir(
     alRecibirLectura: (l: Lectura) => void,
@@ -120,17 +120,23 @@ export class FuenteDemo implements FuenteDatos {
   }
 
   async cargarEquipo(): Promise<EstadoEquipo> {
+    // `nunca_visto` y no `online`, deliberadamente.
+    //
+    // Antes esto devolvía "online" con un RSSI inventado, y el resultado era que
+    // la página mostraba un indicador verde de "En línea" con datos moviéndose:
+    // cualquiera concluía que su ESP32 estaba reportando. Una simulación jamás
+    // debe ser indistinguible de la realidad en un panel de operación.
     return {
-      slug: "planta-01",
-      nombre: "Línea de producción 1",
-      ubicacion: "Planta principal",
-      fw_version: "demo-1.0.0",
-      last_seen_at: new Date().toISOString(),
-      rssi: -58,
-      uptime_s: Math.round((Date.now() - this.arranque) / 1000) + 86_400,
-      free_heap: 186_320,
-      reconnects: 2,
-      estado_conexion: "online",
+      slug: "demo",
+      nombre: "Equipo de demostración",
+      ubicacion: "Datos simulados — ningún equipo conectado",
+      fw_version: null,
+      last_seen_at: null,
+      rssi: null,
+      uptime_s: null,
+      free_heap: null,
+      reconnects: null,
+      estado_conexion: "nunca_visto",
     };
   }
 
@@ -196,5 +202,18 @@ export class FuenteDemo implements FuenteDatos {
 
   async reconocerAlarma(): Promise<void> {
     // En demo no hay nada que persistir; el componente actualiza su estado local.
+  }
+
+  async cargarComandos(): Promise<ComandoEquipo[]> {
+    return [];
+  }
+
+  async enviarComando(): Promise<{ ok: boolean; mensaje: string }> {
+    // No se simula un éxito: fingir que una tara funcionó sobre una báscula que
+    // no existe entrenaría al operador a confiar en un acuse falso.
+    return {
+      ok: false,
+      mensaje: "No hay equipo conectado. En modo demostración no se envían órdenes.",
+    };
   }
 }

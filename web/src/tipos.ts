@@ -58,6 +58,18 @@ export interface EstadoEquipo {
   estado_conexion: "online" | "intermitente" | "offline" | "nunca_visto";
 }
 
+/** Comando encolado hacia el equipo. Ver supabase/migrations/…_comandos.sql */
+export interface ComandoEquipo {
+  id: number;
+  comando: "tara" | "calibrar" | "reiniciar" | "recargar_umbrales";
+  solicitado_por: string;
+  solicitado_at: string;
+  entregado_at: string | null;
+  ejecutado_at: string | null;
+  resultado: Record<string, unknown> | null;
+  estado: "pendiente" | "entregado" | "ejecutado" | "fallido" | "expirado";
+}
+
 export interface Alarma {
   id: number;
   canal: Canal;

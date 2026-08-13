@@ -41,11 +41,20 @@ export interface Salud {
   fw?: string;
 }
 
+/** Resultado de un comando que el equipo ya ejecutó. */
+export interface ResultadoComando {
+  id: number;
+  ok: boolean;
+  detalle?: Record<string, unknown> | null;
+}
+
 /** Cuerpo de POST /ingest (Ruta B). */
 export interface LoteIngesta {
   device: string;
   samples: Muestra[];
   health?: Salud;
+  /** Comandos entregados en la respuesta anterior y ya ejecutados. */
+  resultados?: ResultadoComando[];
 }
 
 // ----------------------------------------------------------------------------
@@ -170,7 +179,22 @@ export function validarLote(cuerpo: unknown): LoteIngesta {
     fw: typeof h.fw === "string" ? h.fw.slice(0, 32) : undefined,
   };
 
-  return { device: c.device, samples, health };
+  // Resultados de comandos. Se descartan silenciosamente los mal formados en
+  // vez de rechazar el lote: perder el acuse de una tara es molesto, perder 30 s
+  // de lecturas del proceso es peor.
+  const resultados: ResultadoComando[] = Array.isArray(c.resultados)
+    ? c.resultados
+        .filter((r): r is Record<string, unknown> => typeof r === "object" && r !== null)
+        .filter((r) => esNumFinito(r.id) && typeof r.ok === "boolean")
+        .slice(0, 20)
+        .map((r) => ({
+          id: r.id as number,
+          ok: r.ok as boolean,
+          detalle: (typeof r.detalle === "object" ? r.detalle : null) as Record<string, unknown> | null,
+        }))
+    : [];
+
+  return { device: c.device, samples, health, resultados };
 }
 
 // ----------------------------------------------------------------------------

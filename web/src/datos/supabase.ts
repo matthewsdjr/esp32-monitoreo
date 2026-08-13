@@ -7,6 +7,7 @@ import type { FuenteDatos } from "./fuente";
 import type {
   Alarma,
   Canal,
+  ComandoEquipo,
   DefinicionSensor,
   EstadoEnlace,
   EstadoEquipo,
@@ -185,6 +186,42 @@ export class FuenteSupabase implements FuenteDatos {
   async reconocerAlarma(id: number, por: string): Promise<void> {
     const { error } = await this.db.rpc("reconocer_alerta", { p_alert_id: id, p_por: por });
     if (error) throw new Error(error.message);
+  }
+
+  // --------------------------------------------------------------------------
+  async cargarComandos(): Promise<ComandoEquipo[]> {
+    const id = await this.idEquipo();
+    const { data } = await this.db
+      .from("device_commands")
+      .select("id, comando, solicitado_por, solicitado_at, entregado_at, ejecutado_at, resultado, estado")
+      .eq("device_id", id)
+      .order("solicitado_at", { ascending: false })
+      .limit(20);
+    return (data ?? []) as ComandoEquipo[];
+  }
+
+  async enviarComando(
+    comando: "tara" | "calibrar",
+    pin: string,
+    quien: string,
+    parametros?: Record<string, unknown>,
+  ): Promise<{ ok: boolean; mensaje: string }> {
+    try {
+      // Va a la Edge Function y NO a PostgREST: la tabla no acepta escrituras de
+      // anon por RLS. Toda la autorización ocurre en el servidor, donde vive el
+      // hash del PIN y el límite de intentos.
+      const r = await fetch(`${URL}/functions/v1/comando`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: ANON },
+        body: JSON.stringify({ device: SLUG, comando, pin, solicitado_por: quien, parametros }),
+      });
+      const j = await r.json();
+      return r.ok
+        ? { ok: true, mensaje: j.mensaje ?? "Orden encolada." }
+        : { ok: false, mensaje: j.error ?? `Error ${r.status}` };
+    } catch {
+      return { ok: false, mensaje: "No se pudo contactar el servidor." };
+    }
   }
 }
 

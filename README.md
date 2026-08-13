@@ -76,6 +76,9 @@ cp .env.example .env          # y completar
 node tools/scripts/registrar-equipo.mjs planta-01 "Línea 1" "Planta principal"
 node tools/scripts/emitir-jwt.mjs planta-01
 
+# 2b. Habilitar los comandos remotos (tara). Sin PIN quedan DESACTIVADOS.
+node tools/scripts/fijar-pin-operador.mjs TU_PIN
+
 # 3. Simular el ESP32 para verificar el flujo completo
 node tools/simulator/simulador.mjs
 ```
@@ -96,7 +99,10 @@ Este repositorio es **público**. Tres reglas:
    un portal cautivo y las guarda cifradas en NVS.
 2. **El token de ingesta del equipo tampoco.** Vive en la NVS; en la base solo
    se guarda su hash SHA-256.
-3. **La `anon key` de Supabase sí es pública**, por diseño. Su seguridad no
+3. **El botón de tara exige un PIN de operador.** La página es pública: sin esa
+   barrera, cualquiera con el enlace podría poner la báscula en cero a media
+   producción. El PIN se valida en el servidor y nunca viaja en el bundle.
+4. **La `anon key` de Supabase sí es pública**, por diseño. Su seguridad no
    depende del secreto sino de las políticas RLS, que solo conceden lectura.
    La `service_role` jamás debe aparecer en el frontend ni en el firmware.
 

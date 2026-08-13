@@ -147,6 +147,26 @@ Deno.serve(async (req) => {
       return json({ error: "no se pudieron guardar las lecturas" }, 500);
     }
 
+    // --- 6b. Resultados de comandos que el equipo ya ejecutó ---------------
+    // El firmware adjunta aquí lo que hizo con los comandos que recibió en la
+    // respuesta anterior. Cerrarlos en la misma petición evita una llamada
+    // extra y mantiene el presupuesto de invocaciones intacto.
+    if (Array.isArray(lote.resultados) && lote.resultados.length > 0) {
+      await Promise.all(
+        lote.resultados.slice(0, 20).map((r) =>
+          db.from("device_commands")
+            .update({
+              estado: r.ok ? "ejecutado" : "fallido",
+              ejecutado_at: new Date().toISOString(),
+              resultado: r.detalle ?? null,
+            })
+            .eq("id", r.id)
+            .eq("device_id", equipo.id) // un equipo no puede cerrar comandos de otro
+            .in("estado", ["pendiente", "entregado"])
+        ),
+      );
+    }
+
     // --- 7. Última lectura y salud del equipo ------------------------------
     const ultima = lote.samples.reduce((a, b) => (a.ts >= b.ts ? a : b));
 
@@ -179,11 +199,34 @@ Deno.serve(async (req) => {
     if (rLatest.error) console.error("upsert latest_readings", rLatest.error);
     if (rDev.error) console.error("update devices", rDev.error);
 
+    // --- 8. Comandos pendientes --------------------------------------------
+    // Aquí es donde el sistema cruza el NAT en sentido inverso: el equipo no
+    // acepta conexiones entrantes, así que los comandos viajan de vuelta en la
+    // respuesta a su propia petición.
+    const { data: pendientes } = await db
+      .from("device_commands")
+      .select("id, comando, parametros")
+      .eq("device_id", equipo.id)
+      .eq("estado", "pendiente")
+      .gt("expira_at", new Date().toISOString())
+      .order("solicitado_at")
+      .limit(5);
+
+    if (pendientes && pendientes.length > 0) {
+      // Se marcan como entregados de inmediato. Si el equipo se reinicia antes
+      // de ejecutarlos se pierden, y eso es lo correcto: reintentar una tara a
+      // ciegas sobre una báscula cargada haría más daño que no hacer nada.
+      await db.from("device_commands")
+        .update({ estado: "entregado", entregado_at: new Date().toISOString() })
+        .in("id", pendientes.map((c) => c.id));
+    }
+
     return json({
       ok: true,
       recibidas: filas.length,
       ultima_ts: ultima.ts,
       servidor_ts: new Date().toISOString(),
+      comandos: pendientes ?? [],
     });
   } catch (e) {
     console.error("error no controlado", e);

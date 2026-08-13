@@ -231,3 +231,90 @@ cuándo. No puede cerrar, borrar ni alterar valores de la alarma.
 | Antigüedad máxima | 7 días | `LIMITES.ANTIGUEDAD_MAX_DIAS` |
 | Retención de crudo | 14 días | `fn_purgar()` |
 | Retención de agregados | 24 meses | `fn_purgar()` |
+
+---
+
+## 6. Comandos hacia el equipo (tara, calibración)
+
+El ESP32 está detrás de NAT y no acepta conexiones entrantes: no se le puede
+"llamar". Los comandos viajan **de vuelta en la respuesta al POST de `/ingest`**
+que el propio equipo hace cada 30 s. Cero conexiones nuevas, cero puertos
+abiertos, cero invocaciones extra.
+
+El precio es la latencia: hasta 30 s entre pulsar el botón y la ejecución. Por
+eso la interfaz muestra el estado del comando en vez de fingir que fue
+instantáneo.
+
+### Encolar — `POST /functions/v1/comando`
+
+```json
+{
+  "device": "planta-01",
+  "comando": "tara",
+  "pin": "PIN_DE_OPERADOR",
+  "solicitado_por": "Supervisor Turno A",
+  "parametros": null
+}
+```
+
+| Comando | Parámetros | Efecto en el equipo |
+|---|---|---|
+| `tara` | — | Toma el peso actual como cero y lo guarda en NVS |
+| `calibrar` | `{"peso_conocido_g": 1000}` | Ajusta el factor de escala con un peso patrón |
+| `reiniciar` | — | Reinicio controlado |
+| `recargar_umbrales` | — | Relee `thresholds` para la evaluación local |
+
+**El PIN es obligatorio.** El dashboard es público: sin esta barrera cualquiera
+con el enlace podría poner la báscula en cero a media producción. Se valida
+contra un hash en el servidor, con límite de 5 intentos por IP cada 15 min. Se
+fija con `node tools/scripts/fijar-pin-operador.mjs <PIN>`; mientras esté vacío,
+los comandos remotos están **desactivados**.
+
+| HTTP | Causa |
+|---|---|
+| 401 | PIN incorrecto |
+| 409 | Ya hay un comando de ese tipo pendiente |
+| 429 | Demasiados intentos fallidos |
+| 503 | PIN no configurado: comandos desactivados |
+
+### Entrega — respuesta de `/ingest`
+
+```json
+{
+  "ok": true,
+  "recibidas": 6,
+  "servidor_ts": "2026-08-13T18:29:56.412Z",
+  "comandos": [
+    { "id": 42, "comando": "tara", "parametros": null }
+  ]
+}
+```
+
+Los comandos se marcan `entregado` en cuanto salen en esta respuesta. Si el
+equipo se reinicia antes de ejecutarlos, se pierden — **y eso es lo correcto**:
+reintentar una tara a ciegas sobre una báscula que ya volvió a cargarse haría
+más daño que no hacer nada.
+
+Caducan a los 10 minutos sin entregar. Una tara que llega tres días tarde,
+cuando el equipo por fin enciende, es peor que ninguna tara.
+
+### Acuse — siguiente `POST /ingest`
+
+```json
+{
+  "device": "planta-01",
+  "samples": [ /* … */ ],
+  "resultados": [
+    { "id": 42, "ok": true, "detalle": { "offset_anterior": 8421, "offset_nuevo": 8395 } }
+  ]
+}
+```
+
+Un `resultados` mal formado se descarta en silencio en vez de rechazar el lote:
+perder el acuse de una tara es molesto; perder 30 s de lecturas del proceso es
+peor.
+
+**Responsabilidad del firmware:** ejecutar cada comando recibido y reportar su
+resultado en el siguiente lote. Si no lo reporta, el comando queda en
+`entregado` y la interfaz lo muestra como no confirmado — que es información
+honesta, no un fallo.

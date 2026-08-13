@@ -2,13 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FuenteDatos } from "./datos";
 import { crearFuente } from "./datos";
 import type {
-  Alarma, DefinicionSensor, EstadoEnlace, EstadoEquipo, Lectura, RangoHistorico, Umbral,
+  Alarma, ComandoEquipo, DefinicionSensor, EstadoEnlace, EstadoEquipo,
+  Lectura, RangoHistorico, Umbral,
 } from "./tipos";
 import { evaluarCanal, valorDe } from "./logica/estado";
 import { BarraEstado } from "./componentes/BarraEstado";
 import { TarjetaSensor } from "./componentes/TarjetaSensor";
 import { PanelHistorico } from "./componentes/PanelHistorico";
 import { TablaAlarmas } from "./componentes/TablaAlarmas";
+import { PanelEquipo } from "./componentes/PanelEquipo";
 
 /** Muestras conservadas para los sparklines: 150 × 2 s = 5 min de tendencia. */
 const LARGO_SPARKLINE = 150;
@@ -27,6 +29,7 @@ export default function App() {
   const [sensores, setSensores] = useState<DefinicionSensor[]>([]);
   const [umbrales, setUmbrales] = useState<Umbral[]>([]);
   const [alarmas, setAlarmas] = useState<Alarma[]>([]);
+  const [comandos, setComandos] = useState<ComandoEquipo[]>([]);
   const [ultima, setUltima] = useState<Lectura | null>(null);
   const [enlace, setEnlace] = useState<EstadoEnlace>("desconectado");
   const [historico, setHistorico] = useState<Lectura[]>([]);
@@ -60,11 +63,12 @@ export default function App() {
     crearFuente().then(async (f) => {
       if (!vivo) return;
       setFuente(f);
-      const [eq, sen, umb, ala] = await Promise.all([
-        f.cargarEquipo(), f.cargarSensores(), f.cargarUmbrales(), f.cargarAlarmas(),
+      const [eq, sen, umb, ala, cmd] = await Promise.all([
+        f.cargarEquipo(), f.cargarSensores(), f.cargarUmbrales(),
+        f.cargarAlarmas(), f.cargarComandos(),
       ]);
       if (!vivo) return;
-      setEquipo(eq); setSensores(sen); setUmbrales(umb); setAlarmas(ala);
+      setEquipo(eq); setSensores(sen); setUmbrales(umb); setAlarmas(ala); setComandos(cmd);
     });
     return () => { vivo = false; };
   }, []);
@@ -97,15 +101,24 @@ export default function App() {
     return () => { vivo = false; };
   }, [fuente, rango]);
 
-  // Refresco periódico del estado del equipo y de las alarmas
+  // Refresco periódico del estado del equipo, alarmas y comandos.
+  // Con un comando en vuelo el sondeo baja a 5 s: el operador está mirando la
+  // pantalla esperando el acuse, y 30 s de silencio se leen como que falló.
+  const hayComandoEnVuelo = comandos.some(
+    (c) => c.estado === "pendiente" || c.estado === "entregado",
+  );
+
   useEffect(() => {
     if (!fuente) return;
+    const periodo = hayComandoEnVuelo ? 5_000 : 30_000;
     const id = setInterval(async () => {
-      const [eq, ala] = await Promise.all([fuente.cargarEquipo(), fuente.cargarAlarmas()]);
-      setEquipo(eq); setAlarmas(ala);
-    }, 30_000);
+      const [eq, ala, cmd] = await Promise.all([
+        fuente.cargarEquipo(), fuente.cargarAlarmas(), fuente.cargarComandos(),
+      ]);
+      setEquipo(eq); setAlarmas(ala); setComandos(cmd);
+    }, periodo);
     return () => clearInterval(id);
-  }, [fuente]);
+  }, [fuente, hayComandoEnVuelo]);
 
   // --- Derivados -------------------------------------------------------------
   const umbralPor = useMemo(
@@ -136,6 +149,21 @@ export default function App() {
     }
   }, [fuente]);
 
+  const enviarComando = useCallback(
+    async (
+      comando: "tara" | "calibrar",
+      pin: string,
+      quien: string,
+      parametros?: Record<string, unknown>,
+    ) => {
+      if (!fuente) return { ok: false, mensaje: "Sin conexión con el servidor." };
+      const r = await fuente.enviarComando(comando, pin, quien, parametros);
+      if (r.ok) setComandos(await fuente.cargarComandos());
+      return r;
+    },
+    [fuente],
+  );
+
   return (
     <div className="min-h-full p-3 sm:p-5">
       <div className="mx-auto max-w-[1400px] flex flex-col gap-4">
@@ -160,6 +188,15 @@ export default function App() {
             />
           ))}
         </section>
+
+        <PanelEquipo
+          equipo={equipo}
+          enlace={enlace}
+          ahoraMs={ahoraMs}
+          esDemo={fuente?.esDemo ?? false}
+          comandos={comandos}
+          alEnviarComando={enviarComando}
+        />
 
         <TablaAlarmas
           alarmas={alarmas}

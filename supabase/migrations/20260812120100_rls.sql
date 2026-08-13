@@ -33,6 +33,33 @@ alter table public.readings_5m     enable row level security;
 -- El dashboard usa la vista devices_publico, que no expone token_hash.
 
 -- ----------------------------------------------------------------------------
+-- Privilegios de tabla
+-- ----------------------------------------------------------------------------
+-- Una política RLS `to anon` NO sirve de nada si el rol no tiene además el
+-- privilegio GRANT sobre la tabla: los privilegios se evalúan ANTES que RLS.
+--
+-- Supabase concede por defecto acceso a `anon` sobre el esquema public, así que
+-- omitir estos GRANT "funciona" en un proyecto nuevo. Pero eso hace que el
+-- modelo de seguridad dependa de una configuración ambiental invisible en el
+-- código: aplicado a un Postgres limpio, o a un proyecto con los permisos por
+-- defecto endurecidos, el dashboard no leería absolutamente nada.
+--
+-- Se declaran de forma explícita para que las migraciones sean autosuficientes
+-- y el permiso concedido quede legible junto a la política que lo acota.
+grant usage on schema public to anon, authenticated;
+
+grant select on public.sensors         to anon, authenticated;
+grant select on public.readings        to anon, authenticated;
+grant select on public.latest_readings to anon, authenticated;
+grant select on public.thresholds      to anon, authenticated;
+grant select on public.alerts          to anon, authenticated;
+grant select on public.readings_5m     to anon, authenticated;
+
+-- Ningún INSERT/UPDATE/DELETE en ninguna parte: la única escritura que puede
+-- originar un visitante es a través de funciones acotadas (reconocer_alerta) o
+-- de una Edge Function con service_role.
+
+-- ----------------------------------------------------------------------------
 -- Lectura pública de telemetría
 -- ----------------------------------------------------------------------------
 create policy "lectura publica de sensores"

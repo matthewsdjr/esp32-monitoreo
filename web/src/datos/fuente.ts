@@ -14,6 +14,7 @@
 
 import type {
   Alarma,
+  ComandoEquipo,
   DefinicionSensor,
   EstadoEnlace,
   EstadoEquipo,
@@ -37,4 +38,13 @@ export interface FuenteDatos {
   cargarHistorico(rango: RangoHistorico): Promise<Lectura[]>;
   cargarAlarmas(): Promise<Alarma[]>;
   reconocerAlarma(id: number, por: string): Promise<void>;
+
+  cargarComandos(): Promise<ComandoEquipo[]>;
+  /** Encola un comando. El PIN se valida en el servidor; aquí solo se transporta. */
+  enviarComando(
+    comando: "tara" | "calibrar",
+    pin: string,
+    quien: string,
+    parametros?: Record<string, unknown>,
+  ): Promise<{ ok: boolean; mensaje: string }>;
 }

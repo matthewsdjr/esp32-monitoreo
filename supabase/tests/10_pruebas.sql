@@ -29,8 +29,9 @@ begin
     (select count(*) from information_schema.tables
       where table_schema='public'
         and table_name in ('devices','sensors','readings','latest_readings',
-                           'thresholds','alerts','readings_5m','app_config')) = 8,
-    'las 8 tablas existen');
+                           'thresholds','alerts','readings_5m','app_config',
+                           'device_commands')) = 9,
+    'las 9 tablas existen');
 
   perform pruebas.afirmar(
     (select count(*) from public.sensors) = 5,
@@ -41,8 +42,8 @@ begin
     'cada canal tiene un bit de falla distinto');
 
   perform pruebas.afirmar(
-    (select count(*) from cron.job) = 3,
-    'los 3 trabajos programados quedaron registrados');
+    (select count(*) from cron.job) = 4,
+    'los 4 trabajos programados quedaron registrados');
 end $$;
 
 -- ============================================================================
@@ -73,6 +74,24 @@ begin
                         'thresholds','alerts','readings_5m','app_config')
         and relnamespace = 'public'::regnamespace),
     'RLS activo en todas las tablas');
+
+  -- Los privilegios se evalúan ANTES que RLS: una política sin GRANT no
+  -- concede nada. Depender de los permisos por defecto de Supabase haría que
+  -- las migraciones no fueran autosuficientes.
+  perform pruebas.afirmar(
+    (select bool_and(has_table_privilege('anon', t, 'SELECT'))
+       from unnest(array['public.sensors','public.readings','public.latest_readings',
+                         'public.thresholds','public.alerts','public.readings_5m']) t),
+    'anon tiene GRANT SELECT explícito en las tablas de telemetría');
+
+  perform pruebas.afirmar(
+    not exists (
+      select 1 from unnest(array['public.sensors','public.readings','public.latest_readings',
+                                 'public.thresholds','public.alerts','public.readings_5m']) t
+      where has_table_privilege('anon', t, 'INSERT')
+         or has_table_privilege('anon', t, 'UPDATE')
+         or has_table_privilege('anon', t, 'DELETE')),
+    'anon NO tiene ningún privilegio de escritura en ninguna tabla');
 
   -- Ninguna política de escritura para anon en ninguna tabla
   perform pruebas.afirmar(
@@ -397,6 +416,80 @@ begin
 
   perform pruebas.afirmar(n1 = 1 and n2 = 1,
     'reenviar el mismo lote no duplica lecturas');
+end $$;
+
+\echo ''
+
+
+-- ============================================================================
+-- 8. Canal de comandos
+-- ============================================================================
+\echo '── 8. Canal de comandos'
+do $$
+declare c1 bigint; c2 bigint; ok boolean := false;
+begin
+  delete from public.device_commands;
+
+  perform pruebas.afirmar(
+    (select valor from public.app_config where clave='operador_pin_hash') = '',
+    'los comandos remotos nacen DESACTIVADOS (PIN vacío)');
+
+  perform pruebas.afirmar(
+    not has_table_privilege('anon', 'public.device_commands', 'INSERT'),
+    'anon NO puede encolar comandos directamente');
+
+  perform pruebas.afirmar(
+    has_table_privilege('anon', 'public.device_commands', 'SELECT'),
+    'anon SÍ puede consultar el estado de los comandos');
+
+  -- Un solo pendiente por tipo: pulsar "tarar" cinco veces debe encolar UNA.
+  insert into public.device_commands (device_id, comando, solicitado_por)
+  values ('00000000-0000-4000-8000-000000000001', 'tara', 'Operador')
+  returning id into c1;
+
+  begin
+    insert into public.device_commands (device_id, comando, solicitado_por)
+    values ('00000000-0000-4000-8000-000000000001', 'tara', 'Operador')
+    returning id into c2;
+  exception when unique_violation then
+    ok := true;
+  end;
+  perform pruebas.afirmar(ok, 'no se puede encolar una segunda tara mientras hay una pendiente');
+
+  -- Una vez ejecutada, sí se puede pedir otra
+  update public.device_commands set estado='ejecutado', ejecutado_at=now() where id=c1;
+  insert into public.device_commands (device_id, comando, solicitado_por)
+  values ('00000000-0000-4000-8000-000000000001', 'tara', 'Operador')
+  returning id into c2;
+  perform pruebas.afirmar(c2 is not null,
+    'tras ejecutarse, se puede encolar una tara nueva');
+
+  -- Caducidad
+  update public.device_commands
+     set expira_at = now() - interval '1 minute'
+   where id = c2;
+  perform public.fn_expirar_comandos();
+
+  perform pruebas.afirmar(
+    (select estado from public.device_commands where id=c2) = 'expirado',
+    'un comando no entregado caduca (no se ejecuta una tara de hace 3 días)');
+
+  perform pruebas.afirmar(
+    (select count(*) from public.device_commands where estado='pendiente') = 0,
+    'no quedan comandos pendientes colgados');
+end $$;
+
+-- Comando inválido rechazado por la restricción
+do $$
+declare ok boolean := false;
+begin
+  begin
+    insert into public.device_commands (device_id, comando, solicitado_por)
+    values ('00000000-0000-4000-8000-000000000001', 'formatear_todo', 'X');
+  exception when check_violation then
+    ok := true;
+  end;
+  perform pruebas.afirmar(ok, 'solo se aceptan comandos de la lista blanca');
 end $$;
 
 \echo ''
