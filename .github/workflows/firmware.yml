@@ -1,0 +1,36 @@
+name: Firmware
+
+on:
+  push:
+    paths: ["firmware/**", ".github/workflows/firmware.yml"]
+  pull_request:
+    paths: ["firmware/**"]
+  workflow_dispatch:
+
+jobs:
+  logica:
+    name: Pruebas de lógica (host)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Rápidas y sin hardware: filtros, calibración y máquina de estados.
+      # Es donde un error produce datos incorrectos sin ningún síntoma visible.
+      - run: make -C firmware test
+
+  compilar:
+    name: Compilar para ESP32
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cachear PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ hashFiles('firmware/platformio.ini') }}
+      - run: pip install --quiet platformio
+      - run: pio run -d firmware

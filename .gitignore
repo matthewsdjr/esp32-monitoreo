@@ -40,3 +40,9 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# ============================================================
+# PlatformIO — artefactos de compilación
+# ============================================================
+firmware/.pio/
+firmware/build/
