@@ -5,7 +5,12 @@ Telemetría en tiempo real de una línea de producción: dos termopares tipo K
 Los datos se publican desde un ESP32 hacia la nube y se visualizan en un
 dashboard público alojado en GitHub Pages.
 
-**Dashboard:** _(se completa tras el primer despliegue)_
+**Dashboard:** <https://matthewsdjr.github.io/esp32-monitoreo/>
+
+> Actualmente publica el **modo demostración** con datos simulados. Al conectar
+> el equipo real (fases 2 y 3) la misma página mostrará las lecturas físicas sin
+> ningún cambio de código: solo se agregan las variables de Supabase al
+> repositorio.
 
 ---
 
