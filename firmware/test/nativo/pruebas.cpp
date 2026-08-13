@@ -16,6 +16,7 @@
 #include "../../src/sensores/calibracion.h"
 #include "../../src/sensores/canal.h"
 #include "../../src/modelo/contrato.h"
+#include "../../src/almacen/bufer.h"
 
 static int fallos = 0;
 static int total = 0;
@@ -336,6 +337,77 @@ static void pruebasCadenaCompleta() {
           "la mediana reduce ese error al menos 5 veces (justifica el orden)");
 }
 
+
+// ============================================================================
+static void pruebasAnillo() {
+  std::printf("\n── Búfer offline (anillo en RAM)\n");
+
+  auto muestra = [](uint32_t t) {
+    almacen::Pendiente p{};
+    p.marcaMs = t;
+    for (int i = 0; i < contrato::NUM_CANALES; i++) p.valor[i] = (float)t;
+    p.faults = 0;
+    return p;
+  };
+
+  almacen::AnilloRam<5> a;
+  afirmar(a.vacio(), "arranca vacío");
+
+  for (uint32_t i = 1; i <= 3; i++) a.agregar(muestra(i));
+  afirmar(a.tamano() == 3, "guarda 3 muestras");
+
+  // asomar NO retira: descartar antes de confirmar la entrega es la forma
+  // clásica de perder datos cuando la respuesta se pierde en un timeout.
+  almacen::Pendiente salida[10];
+  size_t n = a.asomar(salida, 10);
+  afirmar(n == 3, "asomar devuelve las 3");
+  afirmar(a.tamano() == 3, "asomar NO las retira");
+  afirmar(salida[0].marcaMs == 1 && salida[2].marcaMs == 3,
+          "salen en orden FIFO: la más antigua primero");
+
+  a.descartarFrente(2);
+  afirmar(a.tamano() == 1, "descartarFrente retira solo las confirmadas");
+  a.asomar(salida, 10);
+  afirmar(salida[0].marcaMs == 3, "queda la más reciente sin confirmar");
+
+  // Desbordamiento
+  almacen::AnilloRam<5> b;
+  for (uint32_t i = 1; i <= 8; i++) b.agregar(muestra(i));
+  afirmar(b.tamano() == 5, "no crece más allá de su capacidad");
+  afirmar(b.descartadas() == 3, "contabiliza las descartadas");
+  b.asomar(salida, 10);
+  afirmar(salida[0].marcaMs == 4 && salida[4].marcaMs == 8,
+          "al desbordarse conserva las MÁS RECIENTES (4..8)");
+
+  // Vuelta completa del índice: el caso donde fallan las implementaciones
+  // ingenuas, porque inicio y fin cruzan el final del arreglo.
+  almacen::AnilloRam<4> c;
+  for (uint32_t i = 1; i <= 3; i++) c.agregar(muestra(i));
+  c.descartarFrente(2);            // inicio queda en 2
+  for (uint32_t i = 4; i <= 6; i++) c.agregar(muestra(i));  // fin da la vuelta
+  afirmar(c.tamano() == 4, "tamaño correcto tras dar la vuelta");
+  c.asomar(salida, 10);
+  afirmar(salida[0].marcaMs == 3 && salida[1].marcaMs == 4 &&
+          salida[2].marcaMs == 5 && salida[3].marcaMs == 6,
+          "el orden se mantiene aunque el índice dé la vuelta");
+
+  // Descartar más de lo que hay no debe corromper el estado.
+  c.descartarFrente(99);
+  afirmar(c.vacio(), "descartar de más deja el anillo vacío, no corrupto");
+  c.agregar(muestra(77));
+  c.asomar(salida, 10);
+  afirmar(c.tamano() == 1 && salida[0].marcaMs == 77,
+          "sigue usable tras un descarte excesivo");
+
+  // Escenario del criterio de aceptación: 30 min sin red a una muestra cada 5 s
+  // son 360 muestras. Con 720 posiciones, no se pierde ninguna.
+  almacen::AnilloRam<720> caida;
+  for (uint32_t i = 0; i < 360; i++) caida.agregar(muestra(i));
+  afirmar(caida.descartadas() == 0,
+          "una caída de 30 min no descarta ninguna muestra");
+  afirmar(caida.tamano() == 360, "las 360 quedan disponibles para el drenado");
+}
+
 // ============================================================================
 int main() {
   std::printf("\n=== Pruebas de la lógica del firmware ===\n");
@@ -347,6 +419,7 @@ int main() {
   pruebasCanal();
   pruebasContrato();
   pruebasCadenaCompleta();
+  pruebasAnillo();
 
   std::printf("\n%s%d/%d aserciones pasaron\033[0m\n\n",
               fallos == 0 ? "\033[32m" : "\033[31m", total - fallos, total);

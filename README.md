@@ -58,7 +58,7 @@ cada 2 segundos, el histórico y una alarma activa de ejemplo.
 | `supabase/` | Migraciones SQL, Edge Functions y pruebas |
 | `web/` | Dashboard (Vite + React + TypeScript) |
 | `tools/` | Alta de equipos, emisión de JWT y simulador del ESP32 |
-| `firmware/` | Firmware del ESP32 _(Fase 2 lista; red en Fase 3)_ |
+| `firmware/` | Firmware del ESP32 — sensores, red, búfer offline y OTA |
 
 ---
 
@@ -104,6 +104,23 @@ Cableado y prueba de humo en [`docs/CABLEADO.md`](docs/CABLEADO.md). **Antes de
 energizar**, verificar los niveles lógicos del HX711: alimentado a 5 V puede
 dañar de forma permanente un GPIO del ESP32.
 
+### Puesta en marcha del equipo
+
+El firmware no lleva ninguna credencial dentro. Al primer arranque levanta un
+punto de acceso propio (`Monitoreo-xxxxx`); conéctate desde el celular, abre
+cualquier dirección y llena el formulario con la red WiFi y las credenciales que
+generaron los scripts. Todo queda cifrado en la NVS del equipo.
+
+Antes hay que regenerar las anclas TLS contra tu proyecto:
+
+```bash
+./tools/scripts/generar-ca.sh https://TU_PROYECTO.supabase.co
+```
+
+Ya en marcha, el equipo publica una página de servicio en `http://monitoreo.local`
+(solo desde la red de planta) con estado, diagnóstico, tara y calibración —
+útil precisamente cuando no hay internet y el dashboard público no sirve.
+
 ---
 
 ## Seguridad
@@ -148,7 +165,7 @@ demostración.
 | 0 · Verificación de red y preparación | Pendiente — requiere confirmación de TI |
 | 1 · Contrato de datos y backend | ✅ Completa y probada |
 | 2 · Firmware: sensores | ✅ Compila y probado (74 aserciones) |
-| 3 · Firmware: red | Pendiente |
+| 3 · Firmware: red | ✅ Compila y probado (90 aserciones) |
 | 4 · Dashboard | ✅ Funcional en modo demostración |
 | 5 · Integración y calibración | Pendiente |
 | 6 · Endurecimiento y pruebas | Pendiente |
