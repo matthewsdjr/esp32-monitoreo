@@ -58,7 +58,7 @@ cada 2 segundos, el histórico y una alarma activa de ejemplo.
 | `supabase/` | Migraciones SQL, Edge Functions y pruebas |
 | `web/` | Dashboard (Vite + React + TypeScript) |
 | `tools/` | Alta de equipos, emisión de JWT y simulador del ESP32 |
-| `firmware/` | Firmware del ESP32 _(fases 2 y 3, en curso)_ |
+| `firmware/` | Firmware del ESP32 _(Fase 2 lista; red en Fase 3)_ |
 
 ---
 
@@ -88,6 +88,21 @@ Verificar las migraciones contra un Postgres desechable, sin tocar producción:
 ```bash
 ./tools/scripts/test-db.sh
 ```
+
+---
+
+## Firmware
+
+```bash
+make -C firmware test     # lógica: filtros, calibración, estados (sin hardware)
+pio run -d firmware       # compilar para ESP32
+pio run -d firmware -t upload
+pio device monitor -b 115200
+```
+
+Cableado y prueba de humo en [`docs/CABLEADO.md`](docs/CABLEADO.md). **Antes de
+energizar**, verificar los niveles lógicos del HX711: alimentado a 5 V puede
+dañar de forma permanente un GPIO del ESP32.
 
 ---
 
@@ -132,7 +147,7 @@ demostración.
 |---|---|
 | 0 · Verificación de red y preparación | Pendiente — requiere confirmación de TI |
 | 1 · Contrato de datos y backend | ✅ Completa y probada |
-| 2 · Firmware: sensores | Pendiente |
+| 2 · Firmware: sensores | ✅ Compila y probado (74 aserciones) |
 | 3 · Firmware: red | Pendiente |
 | 4 · Dashboard | ✅ Funcional en modo demostración |
 | 5 · Integración y calibración | Pendiente |
