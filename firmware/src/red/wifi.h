@@ -160,7 +160,12 @@ class GestorWiFi {
     prefsRed().putString("pass", pass);
   }
 
+  /** Guardan cada campo por separado, para no borrar el otro sin querer. */
+  void fijarSsid(const String& ssid) { prefsRed().putString("ssid", ssid); }
+  void fijarPass(const String& pass) { prefsRed().putString("pass", pass); }
+
   String ssidGuardado() { return prefsRed().getString("ssid", ""); }
+  String passGuardada() { return prefsRed().getString("pass", ""); }
 
   /** Borra red y credenciales. Se usa para reasignar el equipo a otra planta. */
   void olvidar() {

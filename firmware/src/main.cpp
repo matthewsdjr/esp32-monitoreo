@@ -485,12 +485,14 @@ static void aplicarSet(String resto) {
   red::Credenciales c = almacenCred.leer();
 
   if (campo == "ssid") {
-    gestorWifi.fijarRed(valor, prefsPassTemporal);
+    // Conservar la contraseña ya guardada: escribir la variable temporal
+    // (vacía si `set pass` aún no llegó) borraría una contraseña correcta.
+    gestorWifi.fijarSsid(valor);
     Serial.printf("[config] ssid = %s\n", valor.c_str());
   } else if (campo == "pass") {
     prefsPassTemporal = valor;
-    gestorWifi.fijarRed(gestorWifi.ssidGuardado(), valor);
-    Serial.println("[config] contraseña WiFi guardada");
+    gestorWifi.fijarPass(valor);
+    Serial.printf("[config] contraseña WiFi guardada (%u chars)\n", valor.length());
   } else if (campo == "url")   { c.urlSupabase = valor;    almacenCred.guardar(c);
     Serial.printf("[config] url = %s\n", valor.c_str());
   } else if (campo == "anon")  { c.anonKey = valor;        almacenCred.guardar(c);
@@ -526,6 +528,11 @@ static void imprimirConfig() {
   Serial.println();
   Serial.println("──────────── configuración ────────────");
   Serial.printf("  ssid   %s\n", gestorWifi.ssidGuardado().c_str());
+  Serial.printf("  pass   %s\n",
+                gestorWifi.passGuardada().length()
+                  ? (String("configurada (") + gestorWifi.passGuardada().length() +
+                     " chars)").c_str()
+                  : "(VACÍA)");
   Serial.printf("  url    %s\n", c.urlSupabase.c_str());
   Serial.printf("  slug   %s\n", c.slugEquipo.c_str());
   Serial.printf("  anon   %s\n", mascara(c.anonKey).c_str());
@@ -547,11 +554,10 @@ static void atenderSerieEnPortal() {
       linea.trim();
       if (linea.length()) {
         if (linea.startsWith("set ")) {
+          // NO se sale del portal al completarse el mínimo: el jwt y la anon key
+          // se envían DESPUÉS del token, y salir aquí los cortaba. Se espera a
+          // que quien configura escriba `r` explícitamente.
           aplicarSet(linea.substring(4));
-          const red::Credenciales c = almacenCred.leer();
-          if (c.completas() && gestorWifi.ssidGuardado().length()) {
-            gestorWifi.marcarGuardadoPorSerie();
-          }
         } else if (linea == "ver") {
           imprimirConfig();
         } else if (linea == "r" || linea == "reset") {

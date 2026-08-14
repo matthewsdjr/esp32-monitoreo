@@ -118,9 +118,13 @@ el celular. Todo queda cifrado en la NVS del equipo.
 ```bash
 ./tools/scripts/generar-ca.sh https://TU_PROYECTO.supabase.co   # anclas TLS
 pio run -d firmware -t upload
-node tools/scripts/lineas-aprovisionamiento.mjs "MiRed" "contraseña"
-pio device monitor -b 115200        # pega ahí las líneas, luego `r`
+# Configura el equipo por USB leyendo los valores de .env (recomendado)
+~/.platformio/penv/bin/python tools/scripts/aprovisionar.py
 ```
+
+También se puede a mano: `lineas-aprovisionamiento.mjs` imprime las líneas para
+pegarlas en `pio device monitor -b 115200`, o llenar el formulario del portal
+cautivo desde el celular.
 
 Ya en marcha, el equipo publica una página de servicio en `http://monitoreo.local`
 (solo desde la red de planta) con estado, diagnóstico, tara y calibración —
@@ -171,8 +175,8 @@ demostración.
 | 1 · Contrato de datos y backend | ✅ Completa y probada |
 | 2 · Firmware: sensores | ✅ Compila y probado (74 aserciones) |
 | 3 · Firmware: red | ✅ Compila y probado (90 aserciones) |
-| 4 · Dashboard | ✅ Funcional en modo demostración |
-| 5 · Integración y calibración | Backend validado; falta el hardware |
+| 4 · Dashboard | ✅ En línea con datos reales |
+| 5 · Integración y calibración | ✅ ESP32 real publicando; falta calibrar |
 | 6 · Endurecimiento y pruebas | Pendiente |
 | 7 · Documentación y entrega | En curso |
 
