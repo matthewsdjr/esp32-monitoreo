@@ -5,7 +5,7 @@ import type {
   Alarma, ComandoEquipo, DefinicionSensor, EstadoEnlace, EstadoEquipo,
   Lectura, RangoHistorico, Umbral,
 } from "./tipos";
-import { evaluarCanal, valorDe } from "./logica/estado";
+import { evaluarCanal, msObsoletoSegun, valorDe } from "./logica/estado";
 import { BarraEstado } from "./componentes/BarraEstado";
 import { TarjetaSensor } from "./componentes/TarjetaSensor";
 import { PanelHistorico } from "./componentes/PanelHistorico";
@@ -129,13 +129,14 @@ export default function App() {
   const evaluaciones = useMemo(
     () => sensores.map((s) => ({
       sensor: s,
-      evaluacion: evaluarCanal(s, ultima, umbralPor[s.slug], ahoraMs),
+      evaluacion: evaluarCanal(s, ultima, umbralPor[s.slug], ahoraMs,
+                               msObsoletoSegun(enlace)),
       serie: recientes.current.map((l) => valorDe(l, s.slug)),
     })),
     // recientes.current muta por referencia; forzarRender es lo que dispara el
     // recálculo, y ahoraMs entra porque la evaluación depende de la antigüedad.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sensores, ultima, umbralPor, ahoraMs],
+    [sensores, ultima, umbralPor, ahoraMs, enlace],
   );
 
   const reconocer = useCallback(async (id: number, por: string) => {

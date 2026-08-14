@@ -61,6 +61,11 @@ language sql stable as $$
 $$;
 
 grant usage on schema realtime to anon, authenticated, service_role;
+
+-- En Supabase esta tabla ya viene con RLS activo y pertenece a
+-- supabase_realtime_admin, así que la migración NO lo activa. El stub lo hace
+-- para que las pruebas evalúen las políticas igual que en producción.
+alter table realtime.messages enable row level security;
 grant select, insert on realtime.messages to anon, authenticated;
 
 -- ----------------------------------------------------------------------------

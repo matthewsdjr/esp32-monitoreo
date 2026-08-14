@@ -113,7 +113,14 @@ grant select (id, slug, nombre, ubicacion, fw_version, last_seen_at,
 --   - Suscribir -> permitido a cualquiera (anon). Es un dashboard público.
 -- ============================================================================
 
-alter table realtime.messages enable row level security;
+-- NOTA: NO se ejecuta `alter table realtime.messages enable row level security`.
+-- Esa tabla pertenece al rol supabase_realtime_admin, no a postgres, así que el
+-- ALTER falla con "must be owner of table messages". Supabase ya la entrega con
+-- RLS activo; aquí solo se añaden las políticas.
+
+-- Idempotente: permite reaplicar la migración sin chocar con políticas previas.
+drop policy if exists "suscripcion publica a telemetria" on realtime.messages;
+drop policy if exists "solo el equipo publica en su canal" on realtime.messages;
 
 -- Cualquiera puede LEER el canal de telemetría (dashboard público)
 create policy "suscripcion publica a telemetria"

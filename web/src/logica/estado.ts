@@ -28,10 +28,24 @@ export interface EvaluacionCanal {
 
 /**
  * Antigüedad a partir de la cual una lectura se considera obsoleta.
- * El equipo publica cada 2 s; 15 s son más de siete ciclos perdidos, lo que ya
- * no se explica por jitter de red.
+ *
+ * DEPENDE DEL MODO DE ENLACE, y no tenerlo en cuenta era un error: con el canal
+ * en vivo el equipo publica cada 2 s, así que 15 s son más de siete ciclos
+ * perdidos y delatan un problema real. Pero cuando el navegador cae a consulta
+ * periódica, el dato más fresco disponible es el del último LOTE, que llega
+ * cada 30 s — con el umbral de 15 s todas las tarjetas se marcarían obsoletas
+ * de forma permanente aunque el sistema funcione perfectamente.
  */
-export const MS_OBSOLETO = 15_000;
+export const MS_OBSOLETO_VIVO = 15_000;
+
+/** Tres lotes perdidos: eso sí indica que el equipo dejó de reportar. */
+export const MS_OBSOLETO_DEGRADADO = 95_000;
+
+export function msObsoletoSegun(enlace: string): number {
+  return enlace === "vivo" || enlace === "demo"
+    ? MS_OBSOLETO_VIVO
+    : MS_OBSOLETO_DEGRADADO;
+}
 
 export function valorDe(l: Lectura | null, canal: Canal): number | null {
   if (!l) return null;
@@ -44,6 +58,7 @@ export function evaluarCanal(
   lectura: Lectura | null,
   umbral: Umbral | undefined,
   ahoraMs: number,
+  msObsoleto: number = MS_OBSOLETO_VIVO,
 ): EvaluacionCanal {
   const canal = sensor.slug;
   const valor = valorDe(lectura, canal);
@@ -64,7 +79,7 @@ export function evaluarCanal(
   // 3. Dato viejo. Se evalúa DESPUÉS de la falla porque una falla explícita es
   //    información más precisa que la simple antigüedad.
   const edad = ahoraMs - Date.parse(lectura.ts);
-  if (edad > MS_OBSOLETO) {
+  if (edad > msObsoleto) {
     return { canal, valor, estado: "obsoleto", severidad: "advertencia",
              etiquetaEstado: "Dato obsoleto", etiquetaCorta: "Obsoleto", icono: "◷" };
   }

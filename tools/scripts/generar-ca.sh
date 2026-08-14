@@ -4,15 +4,22 @@
 #
 #   ./tools/scripts/generar-ca.sh https://TU_PROYECTO.supabase.co
 #
-# POR QUÉ NO SE PUEDE FIJAR UN CERTIFICADO Y OLVIDARSE:
-# Las autoridades rotan sus raíces, y Let's Encrypt lo hace con cierta
-# frecuencia. El día que la raíz embebida deje de firmar el certificado del
-# servidor, el equipo dejará de publicar con un error de TLS, y desde planta
-# parecerá que "se cayó internet". Este script permite regenerar el encabezado
-# y cargarlo por OTA antes de que eso ocurra.
+# POR QUÉ ESTE SCRIPT EXISTE
+# La raíz que firma el certificado NO es la misma para todos los proyectos de
+# Supabase: supabase.co usa Let's Encrypt, y un proyecto concreto puede usar
+# Google Trust Services. Fijar una raíz "conocida" a ojo hace que el equipo
+# falle la validación TLS y deje de publicar, y desde planta eso parece
+# simplemente "se cayó internet".
 #
-# El encabezado incluye la fecha de expiración de cada raíz. Conviene revisarlas
-# en el mantenimiento trimestral.
+# POR QUÉ NO BASTA CON COPIAR EL ÚLTIMO CERTIFICADO DE LA CADENA
+# El servidor suele enviar la raíz en su versión CON FIRMA CRUZADA, emitida por
+# otra autoridad más antigua. Ese certificado NO sirve como ancla de confianza:
+# no es auto-firmado, así que la validación intenta buscar A SU emisor y falla.
+# Hay que embeber la versión AUTO-FIRMADA, que se toma del almacén del sistema.
+#
+# El script verifica la cadena contra lo que va a embeber ANTES de escribir el
+# archivo. Si no valida, aborta: es preferible no generar nada a generar unas
+# anclas que dejarían el equipo mudo.
 # ============================================================================
 set -euo pipefail
 
@@ -24,6 +31,17 @@ HOST="$(echo "$URL" | sed -E 's#^https?://##; s#/.*$##')"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
+# Almacén de confianza del sistema, del que se extraen las raíces auto-firmadas.
+ALMACEN=""
+for c in /etc/ssl/cert.pem /usr/local/etc/openssl/cert.pem \
+         /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
+  [ -r "$c" ] && ALMACEN="$c" && break
+done
+if [ -z "$ALMACEN" ]; then
+  echo "No se encontró el almacén de certificados del sistema." >&2
+  exit 1
+fi
+
 echo "Consultando ${HOST}…"
 if ! echo | openssl s_client -connect "$HOST:443" -servername "$HOST" -showcerts \
        > "$TMP/chain.txt" 2>/dev/null; then
@@ -31,62 +49,103 @@ if ! echo | openssl s_client -connect "$HOST:443" -servername "$HOST" -showcerts
   exit 1
 fi
 
-python3 - "$TMP" <<'PY'
-import re, sys, subprocess, os
-tmp = sys.argv[1]
-txt = open(os.path.join(tmp, "chain.txt")).read()
-certs = re.findall(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", txt, re.S)
-if not certs:
+python3 - "$TMP" "$ALMACEN" "$SALIDA" "$HOST" <<'PY'
+import re, os, sys, subprocess
+
+tmp, almacen, salida, host = sys.argv[1:5]
+
+def certs_de(texto):
+    return re.findall(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
+                      texto, re.S)
+
+def campo(pem_path, *args):
+    return subprocess.run(["openssl", "x509", "-in", pem_path, "-noout", *args],
+                          capture_output=True, text=True).stdout.strip()
+
+cadena = certs_de(open(os.path.join(tmp, "chain.txt")).read())
+if not cadena:
     print("La cadena no trae certificados", file=sys.stderr); sys.exit(1)
-for i, c in enumerate(certs):
+
+for i, c in enumerate(cadena):
     open(os.path.join(tmp, f"c{i}.pem"), "w").write(c + "\n")
-print(f"{len(certs)} certificados en la cadena")
-PY
+print(f"{len(cadena)} certificados en la cadena servida:")
+for i in range(len(cadena)):
+    print("  " + campo(os.path.join(tmp, f"c{i}.pem"), "-subject"))
 
-ULTIMO="$(ls "$TMP"/c*.pem | sort | tail -1)"
-echo "Raíz de la cadena:"
-openssl x509 -in "$ULTIMO" -noout -subject -issuer -enddate | sed 's/^/  /'
+ultimo = os.path.join(tmp, f"c{len(cadena)-1}.pem")
+sub_ultimo = campo(ultimo, "-subject").replace("subject=", "").strip()
+iss_ultimo = campo(ultimo, "-issuer").replace("issuer=", "").strip()
+autofirmado = (sub_ultimo == iss_ultimo)
 
-# ISRG Root X1: ancla clásica de Let's Encrypt, con la que valida la cadena
-# actual de Supabase. Se descarga del origen oficial, no de la cadena servida.
-echo "Descargando ISRG Root X1…"
-curl -sS -o "$TMP/x1.pem" https://letsencrypt.org/certs/isrgrootx1.pem
+# ---------------------------------------------------------------------------
+# Elegir las anclas
+# ---------------------------------------------------------------------------
+# Se buscan en el almacén del sistema las raíces AUTO-FIRMADAS que cierran esta
+# cadena concreta. Se toman dos cuando existen:
+#   · la raíz propia del último certificado servido (si es cruzado, su versión
+#     auto-firmada), para el día en que el servidor deje de enviar el cruzado;
+#   · la raíz que EMITIÓ ese certificado cruzado, que es la que valida la cadena
+#     tal como se sirve hoy.
+buscados = {sub_ultimo}
+if not autofirmado:
+    buscados.add(iss_ultimo)
+    print(f"\nEl último certificado servido NO es auto-firmado:")
+    print(f"  sujeto : {sub_ultimo}")
+    print(f"  emisor : {iss_ultimo}")
+    print("  -> se buscarán ambas raíces auto-firmadas en el almacén del sistema")
 
-HUELLA_ESPERADA="96:BC:EC:06:26:49:76:F3:74:60:77:9A:CF:28:C5:A7:CF:E8:A3:C0:AA:E1:1A:8F:FC:EE:05:C0:BD:DF:08:C6"
-HUELLA="$(openssl x509 -in "$TMP/x1.pem" -noout -fingerprint -sha256 | cut -d= -f2)"
-if [ "$HUELLA" != "$HUELLA_ESPERADA" ]; then
-  echo "⚠ La huella de ISRG Root X1 NO coincide con la conocida." >&2
-  echo "  esperada: $HUELLA_ESPERADA" >&2
-  echo "  obtenida: $HUELLA" >&2
-  echo "  Se aborta: embeber una raíz no verificada anula la seguridad de TLS." >&2
-  exit 1
-fi
-echo "Huella de ISRG Root X1 verificada."
+sistema = certs_de(open(almacen).read())
+anclas = []
+vistos = set()
+for pem in sistema:
+    p = os.path.join(tmp, "cand.pem")
+    open(p, "w").write(pem + "\n")
+    s = campo(p, "-subject").replace("subject=", "").strip()
+    i = campo(p, "-issuer").replace("issuer=", "").strip()
+    if s in buscados and s == i and s not in vistos:   # auto-firmada y buscada
+        vistos.add(s)
+        fin = campo(p, "-enddate").replace("notAfter=", "").strip()
+        ruta = os.path.join(tmp, f"ancla{len(anclas)}.pem")
+        open(ruta, "w").write(pem + "\n")
+        anclas.append((ruta, s, fin))
 
-python3 - "$TMP" "$ULTIMO" "$SALIDA" "$HOST" <<'PY'
-import sys, subprocess, os
-tmp, ultimo, salida, host = sys.argv[1:5]
+if not anclas:
+    print("\nNo se encontró ninguna raíz auto-firmada aplicable en el almacén "
+          "del sistema. Abortando.", file=sys.stderr)
+    sys.exit(1)
 
-def info(p):
-    def campo(*args):
-        return subprocess.run(["openssl","x509","-in",p,"-noout",*args],
-                              capture_output=True, text=True).stdout.strip()
-    return (campo("-subject").replace("subject=","").strip(),
-            campo("-enddate").replace("notAfter=","").strip())
+print("\nAnclas seleccionadas (auto-firmadas):")
+for _, s, fin in anclas:
+    print(f"  {s}\n    expira: {fin}")
 
-anclas = [(os.path.join(tmp,"x1.pem"), "ancla principal: valida la cadena actual")]
-# La raíz servida se incluye también: si mañana el servidor deja de enviar el
-# certificado con firma cruzada, esta ancla mantiene la validación.
-if os.path.basename(ultimo) != "c0.pem":
-    anclas.append((ultimo, "raíz servida en la cadena (respaldo)"))
+# ---------------------------------------------------------------------------
+# VERIFICACIÓN OBLIGATORIA antes de escribir nada
+# ---------------------------------------------------------------------------
+paquete = os.path.join(tmp, "anclas.pem")
+open(paquete, "w").write("\n".join(open(r).read().strip() for r, _, _ in anclas) + "\n")
 
+inter = os.path.join(tmp, "inter.pem")
+open(inter, "w").write("\n".join(
+    open(os.path.join(tmp, f"c{i}.pem")).read().strip()
+    for i in range(1, len(cadena))) + "\n")
+
+r = subprocess.run(["openssl", "verify", "-CAfile", paquete,
+                    "-untrusted", inter, os.path.join(tmp, "c0.pem")],
+                   capture_output=True, text=True)
+print("\nVerificación de la cadena real contra estas anclas:")
+print("  " + (r.stdout.strip() or r.stderr.strip()).replace("\n", "\n  "))
+if r.returncode != 0:
+    print("\n  ✗ La cadena NO valida. No se escribe el archivo: unas anclas\n"
+          "    incorrectas dejarían al equipo sin poder publicar.", file=sys.stderr)
+    sys.exit(1)
+print("  ✓ La cadena valida correctamente")
+
+# ---------------------------------------------------------------------------
 partes = []
-for ruta, nota in anclas:
-    sub, exp = info(ruta)
+for ruta, s, fin in anclas:
     pem = open(ruta).read().strip()
     lineas = "\n".join(f'    "{l}\\n"' for l in pem.splitlines())
-    partes.append(f"    // {sub}\n    // {nota}\n    // expira: {exp}\n{lineas}")
-
+    partes.append(f"    // {s}\n    // expira: {fin}\n{lineas}")
 cuerpo = "\n    \"\\n\"\n".join(partes)
 
 open(salida, "w").write(f'''// ============================================================================
@@ -96,14 +155,19 @@ open(salida, "w").write(f'''// =================================================
 //
 // El equipo valida el certificado del servidor contra estas raíces. NUNCA se
 // usa setInsecure(): sin validación, cualquiera en la red podría suplantar al
-// servidor y recibir el token de ingesta del equipo.
+// servidor y quedarse con el token de ingesta del equipo.
+//
+// Son las raíces AUTO-FIRMADAS que cierran la cadena de ESTE proyecto, tomadas
+// del almacén de confianza del sistema. No se copian de la cadena servida: el
+// servidor suele enviar la raíz con firma cruzada, que no sirve como ancla.
+// El script verifica la cadena real contra ellas antes de escribir este archivo.
 //
 // ⚠ REVISAR LAS FECHAS DE EXPIRACIÓN en el mantenimiento trimestral. Cuando la
 // autoridad rote su raíz, el equipo dejará de publicar con un error de TLS y
 // desde planta parecerá que se cayó internet. Regenerar este archivo y cargarlo
 // por OTA antes de esa fecha.
 //
-// Regenerar:  ./tools/scripts/generar-ca.sh https://TU_PROYECTO.supabase.co
+// Regenerar:  ./tools/scripts/generar-ca.sh {host and "https://" + host}
 // ============================================================================
 
 #pragma once
@@ -116,7 +180,7 @@ static const char CA_RAICES[] =
 
 }}  // namespace red
 ''')
-print(f"Escrito {salida}")
+print(f"\nEscrito {salida}")
 PY
 
 echo
