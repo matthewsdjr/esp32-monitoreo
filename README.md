@@ -7,10 +7,9 @@ dashboard público alojado en GitHub Pages.
 
 **Dashboard:** <https://matthewsdjr.github.io/esp32-monitoreo/>
 
-> Actualmente publica el **modo demostración** con datos simulados. Al conectar
-> el equipo real (fases 2 y 3) la misma página mostrará las lecturas físicas sin
-> ningún cambio de código: solo se agregan las variables de Supabase al
-> repositorio.
+> Backend en producción y conectado. La página muestra datos reales del equipo
+> `planta-01`; mientras el ESP32 no esté en línea, aparecerá como fuera de línea
+> con su última lectura conocida.
 
 ---
 
@@ -81,6 +80,10 @@ node tools/scripts/fijar-pin-operador.mjs TU_PIN
 
 # 3. Simular el ESP32 para verificar el flujo completo
 node tools/simulator/simulador.mjs
+
+# 4. Verificar que el canal en vivo es seguro (no basta con mirar el HTTP:
+#    el endpoint responde 202 antes de evaluar la autorización)
+node tools/scripts/probar-canal-vivo.mjs
 ```
 
 Verificar las migraciones contra un Postgres desechable, sin tocar producción:
@@ -167,7 +170,7 @@ demostración.
 | 2 · Firmware: sensores | ✅ Compila y probado (74 aserciones) |
 | 3 · Firmware: red | ✅ Compila y probado (90 aserciones) |
 | 4 · Dashboard | ✅ Funcional en modo demostración |
-| 5 · Integración y calibración | Pendiente |
+| 5 · Integración y calibración | Backend validado; falta el hardware |
 | 6 · Endurecimiento y pruebas | Pendiente |
 | 7 · Documentación y entrega | En curso |
 
