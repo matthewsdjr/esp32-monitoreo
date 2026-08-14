@@ -109,15 +109,17 @@ dañar de forma permanente un GPIO del ESP32.
 
 ### Puesta en marcha del equipo
 
-El firmware no lleva ninguna credencial dentro. Al primer arranque levanta un
-punto de acceso propio (`Monitoreo-xxxxx`); conéctate desde el celular, abre
-cualquier dirección y llena el formulario con la red WiFi y las credenciales que
-generaron los scripts. Todo queda cifrado en la NVS del equipo.
+**Guía completa paso a paso: [`docs/PUESTA-EN-MARCHA.md`](docs/PUESTA-EN-MARCHA.md)**
 
-Antes hay que regenerar las anclas TLS contra tu proyecto:
+El firmware no lleva ninguna credencial dentro. Se aprovisiona por puerto serie
+(recomendado: permite pegar el JWT de 256 caracteres) o por portal cautivo desde
+el celular. Todo queda cifrado en la NVS del equipo.
 
 ```bash
-./tools/scripts/generar-ca.sh https://TU_PROYECTO.supabase.co
+./tools/scripts/generar-ca.sh https://TU_PROYECTO.supabase.co   # anclas TLS
+pio run -d firmware -t upload
+node tools/scripts/lineas-aprovisionamiento.mjs "MiRed" "contraseña"
+pio device monitor -b 115200        # pega ahí las líneas, luego `r`
 ```
 
 Ya en marcha, el equipo publica una página de servicio en `http://monitoreo.local`

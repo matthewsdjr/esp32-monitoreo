@@ -1,5 +1,5 @@
 // ============================================================================
-// Monitoreo ESP32 — Fase 2: adquisición de sensores
+// Monitoreo ESP32 — adquisición de sensores y publicación a la nube
 // ============================================================================
 // Qué cambia respecto al prototipo, y por qué importa:
 //
@@ -11,8 +11,8 @@
 //   serialEvent() (no existe en ESP32)     Consola atendida en su propia tarea
 //   Sin persistencia                       Calibración y tara en NVS
 //
-// El reparto por núcleo prepara la Fase 3: el núcleo 0 queda reservado para la
-// pila de red, así que ninguna lectura lenta podrá tumbar la conexión TLS.
+// El reparto por núcleo es lo que sostiene la red: el núcleo 0 queda para la
+// pila TLS, así que ninguna lectura lenta puede tumbar la conexión.
 // ============================================================================
 
 #include <Arduino.h>
@@ -87,6 +87,10 @@ static void ejecutarComando(const red::ComandoPendiente&); // usada por el enví
 static void enviarLotePendiente(uint32_t& esperaLoteMs);   // usada por la tarea de red
 static red::EstadoServicio* obtenerEstadoServicio();        // usada por el servidor local
 static void tareaLocal(void*);
+static void aplicarSet(String resto);
+static void imprimirConfig();
+static void atenderSerieEnPortal();
+static String prefsPassTemporal;
 
 static inline sensores::Canal& canal(contrato::Canal c) {
   return canales[static_cast<uint8_t>(c)];
@@ -458,6 +462,111 @@ static void tareaRed(void*) {
   }
 }
 
+
+// ===========================================================================
+// Aprovisionamiento por puerto serie
+// ===========================================================================
+// Alternativa al portal cautivo. Existe por una razón práctica: el JWT del
+// equipo son ~256 caracteres y el token ~43, y teclear eso en el teclado de un
+// celular es impracticable. Por USB se pegan con copiar-pegar.
+//
+// Los valores van a NVS igual que por el portal; NADA de esto toca el código.
+static void aplicarSet(String resto) {
+  resto.trim();
+  const int esp = resto.indexOf(' ');
+  if (esp <= 0) {
+    Serial.println("[config] uso: set <ssid|pass|url|anon|slug|token|jwt> <valor>");
+    return;
+  }
+  const String campo = resto.substring(0, esp);
+  String valor = resto.substring(esp + 1);
+  valor.trim();
+
+  red::Credenciales c = almacenCred.leer();
+
+  if (campo == "ssid") {
+    gestorWifi.fijarRed(valor, prefsPassTemporal);
+    Serial.printf("[config] ssid = %s\n", valor.c_str());
+  } else if (campo == "pass") {
+    prefsPassTemporal = valor;
+    gestorWifi.fijarRed(gestorWifi.ssidGuardado(), valor);
+    Serial.println("[config] contraseña WiFi guardada");
+  } else if (campo == "url")   { c.urlSupabase = valor;    almacenCred.guardar(c);
+    Serial.printf("[config] url = %s\n", valor.c_str());
+  } else if (campo == "anon")  { c.anonKey = valor;        almacenCred.guardar(c);
+    Serial.printf("[config] anon key guardada (%u chars)\n", valor.length());
+  } else if (campo == "slug")  { c.slugEquipo = valor;     almacenCred.guardar(c);
+    Serial.printf("[config] slug = %s\n", valor.c_str());
+  } else if (campo == "token") { c.tokenIngesta = valor;   almacenCred.guardar(c);
+    Serial.printf("[config] token guardado (%u chars)\n", valor.length());
+  } else if (campo == "jwt")   { c.jwtDispositivo = valor; almacenCred.guardar(c);
+    Serial.printf("[config] jwt guardado (%u chars)\n", valor.length());
+  } else {
+    Serial.printf("[config] campo desconocido: %s\n", campo.c_str());
+    return;
+  }
+
+  // Si ya está todo, se avisa. No se reinicia solo: quien configura decide
+  // cuándo, y así puede revisar con `ver` antes de arrancar.
+  c = almacenCred.leer();
+  if (c.completas() && gestorWifi.ssidGuardado().length()) {
+    Serial.println("[config] configuración COMPLETA · escribe 'r' para reiniciar y conectar");
+  }
+}
+
+/** Muestra la configuración con los secretos enmascarados. */
+static void imprimirConfig() {
+  const red::Credenciales c = almacenCred.leer();
+  auto mascara = [](const String& v) -> String {
+    if (v.length() == 0) return "(vacío)";
+    if (v.length() <= 8) return "********";
+    return v.substring(0, 4) + "…" + v.substring(v.length() - 4) +
+           " (" + String(v.length()) + " chars)";
+  };
+  Serial.println();
+  Serial.println("──────────── configuración ────────────");
+  Serial.printf("  ssid   %s\n", gestorWifi.ssidGuardado().c_str());
+  Serial.printf("  url    %s\n", c.urlSupabase.c_str());
+  Serial.printf("  slug   %s\n", c.slugEquipo.c_str());
+  Serial.printf("  anon   %s\n", mascara(c.anonKey).c_str());
+  Serial.printf("  token  %s\n", mascara(c.tokenIngesta).c_str());
+  Serial.printf("  jwt    %s\n", mascara(c.jwtDispositivo).c_str());
+  Serial.printf("  estado %s · tiempo real %s\n",
+                c.completas() ? "COMPLETA" : "INCOMPLETA",
+                c.puedeTiempoReal() ? "disponible" : "no configurado");
+  Serial.println("───────────────────────────────────────");
+  Serial.println();
+}
+
+/** Atiende el puerto serie mientras el portal cautivo está abierto. */
+static void atenderSerieEnPortal() {
+  static String linea;
+  while (Serial.available()) {
+    const char ch = Serial.read();
+    if (ch == '\n' || ch == '\r') {
+      linea.trim();
+      if (linea.length()) {
+        if (linea.startsWith("set ")) {
+          aplicarSet(linea.substring(4));
+          const red::Credenciales c = almacenCred.leer();
+          if (c.completas() && gestorWifi.ssidGuardado().length()) {
+            gestorWifi.marcarGuardadoPorSerie();
+          }
+        } else if (linea == "ver") {
+          imprimirConfig();
+        } else if (linea == "r" || linea == "reset") {
+          ESP.restart();
+        } else {
+          Serial.println("[portal] set <ssid|pass|url|anon|slug|token|jwt> <valor> · ver · r");
+        }
+      }
+      linea = "";
+    } else if (linea.length() < 512) {
+      linea += ch;
+    }
+  }
+}
+
 // ===========================================================================
 // Tarea: consola
 // ===========================================================================
@@ -487,16 +596,26 @@ static void tareaConsola(void*) {
             }
           } else if (linea == "d" || linea == "diag") {
             imprimirDiagnostico();
+          } else if (linea.startsWith("set ")) {
+            aplicarSet(linea.substring(4));
+          } else if (linea == "ver") {
+            imprimirConfig();
+          } else if (linea == "olvidar") {
+            gestorWifi.olvidar();
+            Serial.println("[consola] credenciales borradas · reiniciando");
+            delay(200);
+            ESP.restart();
           } else if (linea == "r" || linea == "reset") {
             Serial.println("[consola] reiniciando…");
             delay(100);
             ESP.restart();
           } else {
-            Serial.println("[consola] comandos: t (tara) · cal <g> · d (diag) · r (reset)");
+            Serial.println("[consola] t (tara) · cal <g> · d (diag) · ver · "
+                           "set <campo> <valor> · olvidar · r (reset)");
           }
         }
         linea = "";
-      } else if (linea.length() < 64) {
+      } else if (linea.length() < 512) {   // el JWT del equipo son ~256 chars
         linea += c;
       }
     }
@@ -685,8 +804,23 @@ void setup() {
   if (!credenciales.completas()) {
     // Sin configurar no hay nada útil que hacer, así que el portal bloquea a
     // propósito. Los sensores no se inician: se reiniciará al guardar.
-    Serial.println("[red] equipo SIN CONFIGURAR — abriendo portal cautivo");
-    gestorWifi.portalCautivo();   // no retorna: reinicia al guardar
+    Serial.println("[red] equipo SIN CONFIGURAR");
+    Serial.println("      Opción A: conéctate al WiFi del equipo y llena el formulario.");
+    Serial.println("      Opción B (recomendada): pega aquí los valores. El JWT son");
+    Serial.println("      ~256 caracteres y teclearlo en un celular es impracticable.");
+    Serial.println("        set ssid  <nombre de tu red>");
+    Serial.println("        set pass  <contraseña>");
+    Serial.println("        set url   https://xxxx.supabase.co");
+    Serial.println("        set slug  planta-01");
+    Serial.println("        set token <token de ingesta>");
+    Serial.println("        set jwt   <jwt del equipo>");
+    Serial.println("        set anon  <anon key>");
+    Serial.println("        ver   para revisar · r para reiniciar y conectar\n");
+    gestorWifi.portalCautivo(atenderSerieEnPortal);
+    // Al completarse por serie el bucle termina; se reinicia para arrancar limpio.
+    Serial.println("[red] configuración completa · reiniciando");
+    delay(500);
+    ESP.restart();
   }
 
   if (gestorWifi.conectar()) {

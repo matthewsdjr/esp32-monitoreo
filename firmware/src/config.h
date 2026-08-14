@@ -72,6 +72,6 @@ constexpr uint32_t MS_OBSOLETO_TERMOPAR = 1500;
 // ---------------------------------------------------------------------------
 // Identificación
 // ---------------------------------------------------------------------------
-constexpr const char* VERSION_FIRMWARE = "2.0.0-fase2";
+constexpr const char* VERSION_FIRMWARE = "2.1.0";
 
 }  // namespace config

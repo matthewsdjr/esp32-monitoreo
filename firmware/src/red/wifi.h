@@ -95,8 +95,12 @@ class GestorWiFi {
    * Levanta el punto de acceso de configuración y atiende hasta que se guarden
    * las credenciales. Bloquea a propósito: sin configurar, el equipo no tiene
    * nada útil que hacer.
+   *
+   * `alTick` se invoca en cada vuelta del bucle. Se usa para atender también el
+   * puerto serie: el JWT del equipo tiene 256 caracteres y teclearlo en un
+   * celular es impracticable, así que hay que poder pegarlo por USB.
    */
-  void portalCautivo() {
+  void portalCautivo(void (*alTick)() = nullptr) {
     const String ap = String("Monitoreo-") + String((uint32_t)ESP.getEfuseMac(), HEX);
 
     WiFi.mode(WIFI_AP);
@@ -137,15 +141,26 @@ class GestorWiFi {
     Serial.printf("\n[portal] Conéctate a la red WiFi \"%s\" y abre http://%s\n\n",
                   ap.c_str(), WiFi.softAPIP().toString().c_str());
 
-    while (!guardado) {
+    while (!guardado && !guardadoPorSerie_) {
       dns.processNextRequest();
       srv.handleClient();
+      if (alTick) alTick();
       delay(5);
     }
 
     delay(1500);
     ESP.restart();
   }
+
+  /** Lo llama el aprovisionamiento por serie para salir del portal. */
+  void marcarGuardadoPorSerie() { guardadoPorSerie_ = true; }
+
+  void fijarRed(const String& ssid, const String& pass) {
+    prefsRed().putString("ssid", ssid);
+    prefsRed().putString("pass", pass);
+  }
+
+  String ssidGuardado() { return prefsRed().getString("ssid", ""); }
 
   /** Borra red y credenciales. Se usa para reasignar el equipo a otra planta. */
   void olvidar() {
@@ -202,6 +217,7 @@ class GestorWiFi {
   uint32_t sinRedDesdeMs_ = 0;
   uint32_t ultimoIntentoMs_ = 0;
   uint32_t esperaMs_ = 1000;
+  bool guardadoPorSerie_ = false;
 };
 
 }  // namespace red
